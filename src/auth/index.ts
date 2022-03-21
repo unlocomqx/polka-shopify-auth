@@ -1,143 +1,148 @@
-import {Context} from 'koa';
+import Shopify, { AuthQuery } from "@shopify/shopify-api"
+import Cookies from "cookies"
+import { ServerResponse } from "http"
+import type polka from "polka"
+import { redirect } from "../polka-helpers"
+import { AccessMode, NextFunction, OAuthStartOptions } from "../types"
 
-import {OAuthStartOptions, AccessMode, NextFunction} from '../types';
+import getCookieOptions from "./cookie-options"
+import createEnableCookies from "./create-enable-cookies"
+import createRequestStorageAccess from "./create-request-storage-access"
+import createTopLevelOAuthRedirect from "./create-top-level-oauth-redirect"
+import setUserAgent from "./set-user-agent"
 
-import getCookieOptions from './cookie-options';
-import createEnableCookies from './create-enable-cookies';
-import createTopLevelOAuthRedirect from './create-top-level-oauth-redirect';
-import createRequestStorageAccess from './create-request-storage-access';
-import setUserAgent from './set-user-agent';
+const DEFAULT_MYSHOPIFY_DOMAIN = "myshopify.com"
+export const DEFAULT_ACCESS_MODE: AccessMode = "online"
 
-import Shopify, {AuthQuery} from '@shopify/shopify-api';
-
-const DEFAULT_MYSHOPIFY_DOMAIN = 'myshopify.com';
-export const DEFAULT_ACCESS_MODE: AccessMode = 'online';
-
-export const TOP_LEVEL_OAUTH_COOKIE_NAME = 'shopifyTopLevelOAuth';
-export const TEST_COOKIE_NAME = 'shopifyTestCookie';
+export const TOP_LEVEL_OAUTH_COOKIE_NAME = "shopifyTopLevelOAuth"
+export const TEST_COOKIE_NAME = "shopifyTestCookie"
 export const GRANTED_STORAGE_ACCESS_COOKIE_NAME =
-  'shopify.granted_storage_access';
+  "shopify.granted_storage_access"
 
-function hasCookieAccess({cookies}: Context) {
-  return Boolean(cookies.get(TEST_COOKIE_NAME));
+function hasCookieAccess (cookies: Cookies) {
+  return Boolean(cookies.get(TEST_COOKIE_NAME))
 }
 
-function grantedStorageAccess({cookies}: Context) {
-  return Boolean(cookies.get(GRANTED_STORAGE_ACCESS_COOKIE_NAME));
+function grantedStorageAccess (cookies: Cookies) {
+  return Boolean(cookies.get(GRANTED_STORAGE_ACCESS_COOKIE_NAME))
 }
 
-function shouldPerformInlineOAuth({cookies}: Context) {
-  return Boolean(cookies.get(TOP_LEVEL_OAUTH_COOKIE_NAME));
+function shouldPerformInlineOAuth (cookies: Cookies) {
+  return Boolean(cookies.get(TOP_LEVEL_OAUTH_COOKIE_NAME))
 }
 
-export default function createShopifyAuth(options: OAuthStartOptions) {
+export default function createShopifyAuth (options: OAuthStartOptions) {
   const config = {
-    prefix: '',
+    prefix         : "",
     myShopifyDomain: DEFAULT_MYSHOPIFY_DOMAIN,
-    accessMode: DEFAULT_ACCESS_MODE,
+    accessMode     : DEFAULT_ACCESS_MODE,
     ...options,
-  };
+  }
 
-  const {prefix} = config;
+  const { prefix } = config
 
-  const oAuthStartPath = `${prefix}/auth`;
-  const oAuthCallbackPath = `${oAuthStartPath}/callback`;
+  const oAuthStartPath = `${ prefix }/auth`
+  const oAuthCallbackPath = `${ oAuthStartPath }/callback`
 
-  const inlineOAuthPath = `${prefix}/auth/inline`;
+  const inlineOAuthPath = `${ prefix }/auth/inline`
   const topLevelOAuthRedirect = createTopLevelOAuthRedirect(
     Shopify.Context.API_KEY,
     inlineOAuthPath,
-  );
+  )
 
-  const enableCookiesPath = `${oAuthStartPath}/enable_cookies`;
-  const enableCookies = createEnableCookies(config);
-  const requestStorageAccess = createRequestStorageAccess(config);
+  const enableCookiesPath = `${ oAuthStartPath }/enable_cookies`
+  const enableCookies = createEnableCookies(config)
+  const requestStorageAccess = createRequestStorageAccess(config)
 
-  setUserAgent();
+  setUserAgent()
 
-  return async function shopifyAuth(ctx: Context, next: NextFunction) {
-    ctx.cookies.secure = true;
+  return async function shopifyAuth (req: polka.Request, res: ServerResponse, next: NextFunction) {
+    const cookies = new Cookies(req, res, {
+      secure: true,
+      keys  : options.keys || []
+    })
 
     if (
-      ctx.path === oAuthStartPath &&
-      !hasCookieAccess(ctx) &&
-      !grantedStorageAccess(ctx)
+      req.path === oAuthStartPath &&
+      !hasCookieAccess(cookies) &&
+      !grantedStorageAccess(cookies)
     ) {
-      await requestStorageAccess(ctx);
-      return;
+      await requestStorageAccess(req, res)
+      return
     }
 
     if (
-      ctx.path === inlineOAuthPath ||
-      (ctx.path === oAuthStartPath && shouldPerformInlineOAuth(ctx))
+      req.path === inlineOAuthPath ||
+      (req.path === oAuthStartPath && shouldPerformInlineOAuth(cookies))
     ) {
-      const shop = ctx.query.shop as string;
+      const shop = req.query.shop as string
       if (shop == null) {
-        ctx.throw(400);
+        res.writeHead(400)
       }
 
-      ctx.cookies.set(TOP_LEVEL_OAUTH_COOKIE_NAME, '', getCookieOptions(ctx));
+      cookies.set(TOP_LEVEL_OAUTH_COOKIE_NAME, "", getCookieOptions(req))
       const redirectUrl = await Shopify.Auth.beginAuth(
-        ctx.req,
-        ctx.res,
+        req,
+        res,
         shop,
         oAuthCallbackPath,
-        config.accessMode === 'online',
-      );
-      ctx.redirect(redirectUrl);
-      return;
+        config.accessMode === "online",
+      )
+      redirect(res, redirectUrl)
+      return
     }
 
-    if (ctx.path === oAuthStartPath) {
-      await topLevelOAuthRedirect(ctx);
-      return;
+    if (req.path === oAuthStartPath) {
+      await topLevelOAuthRedirect(req, res, cookies)
+      return
     }
 
-    if (ctx.path === oAuthCallbackPath) {
+    if (req.path === oAuthCallbackPath) {
       try {
         const authQuery: AuthQuery = {
-          code: ctx.query.code as string,
-          shop: ctx.query.shop as string,
-          host: ctx.query.host as string,
-          state: ctx.query.state as string,
-          timestamp: ctx.query.timestamp as string,
-          hmac: ctx.query.hmac as string,
-        };
-
-        ctx.state.shopify = await Shopify.Auth.validateAuthCallback(
-          ctx.req,
-          ctx.res,
-          authQuery,
-        );
+          code     : req.query.code as string,
+          shop     : req.query.shop as string,
+          host     : req.query.host as string,
+          state    : req.query.state as string,
+          timestamp: req.query.timestamp as string,
+          hmac     : req.query.hmac as string,
+        }
 
         if (config.afterAuth) {
-          await config.afterAuth(ctx);
+          await config.afterAuth({
+            ...await Shopify.Auth.validateAuthCallback(
+              req,
+              res,
+              authQuery,
+            ),
+            host: req.headers.host
+          })
         }
       } catch (e) {
         switch (true) {
           case e instanceof Shopify.Errors.InvalidOAuthError:
-            ctx.throw(400, e.message);
-            break;
+            res.writeHead(400, e.message)
+            break
           case e instanceof Shopify.Errors.CookieNotFound:
           case e instanceof Shopify.Errors.SessionNotFound:
             // This is likely because the OAuth session cookie expired before the merchant approved the request
-            ctx.redirect(`${oAuthStartPath}?shop=${ctx.query.shop}`);
-            break;
+            redirect(res, `${ oAuthStartPath }?shop=${ req.query.shop }`)
+            break
           default:
-            ctx.throw(500, e.message);
-            break;
+            res.writeHead(500, e.message)
+            break
         }
       }
-      return;
+      return
     }
 
-    if (ctx.path === enableCookiesPath) {
-      await enableCookies(ctx);
-      return;
+    if (req.path === enableCookiesPath) {
+      await enableCookies(req, res)
+      return
     }
 
-    await next();
-  };
+    await next()
+  }
 }
 
-export {default as Error} from './errors';
+export { default as Error } from "./errors"

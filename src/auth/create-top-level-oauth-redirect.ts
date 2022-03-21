@@ -1,18 +1,24 @@
-import {Context} from 'koa';
+import Cookies from "cookies"
+import { ServerResponse } from "http"
+import polka from "polka"
+import getCookieOptions from "./cookie-options"
 
-import createTopLevelRedirect from './create-top-level-redirect';
-import getCookieOptions from './cookie-options';
+import createTopLevelRedirect from "./create-top-level-redirect"
 
-import {TOP_LEVEL_OAUTH_COOKIE_NAME} from './index';
+import { TOP_LEVEL_OAUTH_COOKIE_NAME } from "./index"
 
-export default function createTopLevelOAuthRedirect(
+export default function createTopLevelOAuthRedirect (
   apiKey: string,
   path: string,
 ) {
-  const redirect = createTopLevelRedirect(apiKey, path);
+  const redirect = createTopLevelRedirect(apiKey, path)
 
-  return function topLevelOAuthRedirect(ctx: Context) {
-    ctx.cookies.set(TOP_LEVEL_OAUTH_COOKIE_NAME, '1', getCookieOptions(ctx));
-    redirect(ctx);
-  };
+  return function topLevelOAuthRedirect (
+    req: polka.Request,
+    res: ServerResponse,
+    cookies: Cookies) {
+
+    cookies.set(TOP_LEVEL_OAUTH_COOKIE_NAME, "1", getCookieOptions(req))
+    redirect(req, res)
+  }
 }

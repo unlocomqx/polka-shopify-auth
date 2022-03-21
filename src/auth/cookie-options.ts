@@ -1,14 +1,14 @@
-import {Context} from 'koa';
+import type polka from "polka"
 
-export default function getCookieOptions(ctx: Context) {
-  const {header} = ctx;
-  const userAgent = header['user-agent'];
-  const isChrome = userAgent && userAgent.match(/chrome|crios/i);
-  let cookieOptions = {};
+export default function getCookieOptions (req: polka.Request) {
+  const { headers } = req
+  const userAgent = headers["user-agent"]
+  const isChrome = userAgent && userAgent.match(/chrome|crios/i)
+  let cookieOptions = {}
   if (isChrome) {
     cookieOptions = {
       secure: true,
-    };
+    }
   }
-  return cookieOptions;
+  return cookieOptions
 }

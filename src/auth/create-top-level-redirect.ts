@@ -1,22 +1,21 @@
-import querystring from 'querystring';
+import { ServerResponse } from "http"
+import polka from "polka"
+import querystring from "querystring"
 
-import {Context} from 'koa';
+import redirectionPage from "./redirection-page"
 
-import redirectionPage from './redirection-page';
+export default function createTopLevelRedirect (apiKey: string, path: string) {
+  return function topLevelRedirect (req: polka.Request, res: ServerResponse) {
+    const { query } = req
+    const { shop, host } = query
 
-export default function createTopLevelRedirect(apiKey: string, path: string) {
-  return function topLevelRedirect(ctx: Context) {
-    const {query} = ctx;
-    const {shop, host} = query;
-
-    const params = {shop};
-    const queryString = querystring.stringify(params);
-
-    ctx.body = redirectionPage({
-      origin: shop,
-      redirectTo: `https://${ctx.host}${path}?${queryString}`,
+    const params = { shop }
+    const queryString = querystring.stringify(params)
+    res.end(redirectionPage({
+      origin    : shop,
+      redirectTo: `https://${ req.host }${ path }?${ queryString }`,
       apiKey,
       host,
-    });
-  };
+    }))
+  }
 }
